@@ -1,4 +1,4 @@
-## My Project
+## Security Analytics Immersion Day
 
 TODO: Fill this README out!
 
