@@ -29,8 +29,9 @@ https://<your-bucket-name>.s3.amazonaws.com/<your-folder-path>/cloudformation.ya
 ~~~
 6. Click **Next**
 7. Enter a **Stack name**
-8. Enter _<you-bucket-name>_ in the **WSAssetBucketName** field
+8. Enter _<your-bucket-name>_ in the **WSAssetBucketName** field
 9. Enter _<your-folder-path/> in the **WSAssetBucketPrefix**_
+
 **IMPORTANT** make sure the folder path ends with a '/' character
 10. Click **Next**
 11. No changes are required on **Configure stack options**, Click **Next**
