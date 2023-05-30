@@ -12,7 +12,7 @@ You will need access to the following:
 ## Setup
 
 1. If necessary create a bucket and folder to host the files that will be created from the steps that follow
-2. Open a command line window and create or navigate a directory where you want to clone this repository and execute the following commands
+2. Open a command line window and create or navigate to a directory where you want to clone this repository and execute the following commands
 ~~~
 git clone https://github.com/aws-samples/security-analytics-immersion-day.git
 cd aws-samples/security-analytics-immersion-day
