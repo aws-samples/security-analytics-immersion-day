@@ -1,0 +1,381 @@
+---
+Parameters:
+  WSAssetBucketName:
+    Type: String
+  WSAssetBucketPrefix:
+    Type: String
+  DomainParam:
+    Default: security-analytics-lab
+    Description: Name for the OpenSearch domain
+    Type: String
+  OpenSearchMasterUserNameParam:
+    Description: The name for the OpenSearch master user
+    Type: String
+    Default: DefaultOpenSearchUser
+  OpenSearchMasterUserPasswordParam:
+    Description: The master user password.  Must be at least 8 characters, with at
+      least one capital letter and at least one special character.
+    Type: String
+    MinLength: 8
+    NoEcho: true
+    Default: DefaultPa55w0rd!
+  OpenSearchCloudTrailParam:
+    Description: The name for the CloudTrail Trail for OpenSearch lab
+    Type: String
+    Default: opensearch-cloud-trail
+  OpenSearchCloudTrailLogIndexParam:
+    Description: Name of the CloudTrail log index in OpenSearch
+    Type: String
+    Default: 'cloud-trail-log'
+  OpenSearchVPCFlowLogIndexParam:
+    Description: Name of the VPC Flow Log index in OpenSearch
+    Type: String
+    Default: 'vpc-flow-log'
+Resources:
+  OpenSearchVPCFlowLogBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::AccountId}-opensearch-vpc-flow-log-bucket'
+  OpenSearchCloudTrailBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::AccountId}-opensearch-cloud-trail-bucket'
+  OpenSearchCloudTrailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref OpenSearchCloudTrailBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AWSCloudTrailAclCheck20150319
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt OpenSearchCloudTrailBucket.Arn
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:aws:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/${OpenSearchCloudTrailParam}'
+          - Sid: AWSCloudTrailWrite20150319
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub '${OpenSearchCloudTrailBucket.Arn}/AWSLogs/${AWS::AccountId}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:aws:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/${OpenSearchCloudTrailParam}'
+                s3:x-amz-acl: bucket-owner-full-control
+  Trail:
+    Type: AWS::CloudTrail::Trail
+    DependsOn: OpenSearchCloudTrailBucketPolicy
+    Properties:
+      S3BucketName: !Ref OpenSearchCloudTrailBucket
+      IsLogging: false
+      TrailName: !Ref OpenSearchCloudTrailParam
+      EnableLogFileValidation: true
+  OpenSearchLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: SecurityAnalyticsLabOpenSearchLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+        - PolicyName: OpenSearchLambdaExecutionRolePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+              - Effect: Allow
+                Action:
+                  - 'es:*'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                Resource: 'arn:aws:s3:::*'
+  OpenSearchLambdaLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      CompatibleRuntimes:
+      - python3.8
+      Content:
+        S3Bucket: !Ref WSAssetBucketName
+        S3Key:
+          Fn::Sub: "${WSAssetBucketPrefix}opensearch-lambda-layer.zip"
+      Description: Dependencies for OpenSearch lab lambda functions
+      LayerName: opensearch-lambda-layer
+  OpenSearchInitLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: opensearch-init-lambda
+      Handler: opensearch-init-lambda.lambda_handler
+      Role:
+        Fn::GetAtt:
+        - OpenSearchLambdaExecutionRole
+        - Arn
+      Code:
+        S3Bucket: !Ref WSAssetBucketName
+        S3Key:
+          Fn::Sub: "${WSAssetBucketPrefix}opensearch-init-lambda.zip"
+      Layers:
+        - Ref: OpenSearchLambdaLayer
+      Environment:
+        Variables:
+          OPENSEARCH_DOMAIN: !Ref DomainParam
+          OPENSEARCH_INIT_BUCKET: !Ref WSAssetBucketName
+          OPENSEARCH_INIT_BUCKET_PREFIX: !Ref WSAssetBucketPrefix
+          OPENSEARCH_CLOUD_TRAIL_LOG_INDEX: !Ref OpenSearchCloudTrailLogIndexParam
+          OPENSEARCH_CLOUD_TRAIL_LOG_MAPPING: cloud-trail-logs-mapping.json
+          OPENSEARCH_CLOUD_TRAIL_LOG_SANITIZED: cloud-trail-logs-sanitized.json
+          OPENSEARCH_VPC_FLOW_LOG_INDEX: !Ref OpenSearchVPCFlowLogIndexParam
+          OPENSEARCH_VPC_FLOW_LOG_MAPPING: vpc-flow-logs-mapping.json
+          OPENSEARCH_VPC_FLOW_LOG_SANITIZED: vpc-flow-logs-sanitized.json
+      Runtime: python3.8
+      Timeout: 300
+  VPCFlowLogToOpenSearchLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: vpc-flow-log-to-opensearch
+      Handler: vpc-flow-log-to-opensearch.lambda_handler
+      Role:
+        Fn::GetAtt:
+        - OpenSearchLambdaExecutionRole
+        - Arn
+      Code:
+        S3Bucket: !Ref WSAssetBucketName
+        S3Key:
+          Fn::Sub: "${WSAssetBucketPrefix}vpc-flow-log-to-opensearch.zip"
+      Layers:
+        - Ref: OpenSearchLambdaLayer
+      Environment:
+        Variables:
+          OPENSEARCH_DOMAIN: !Ref DomainParam
+          OPENSEARCH_VPC_FLOW_LOG_INDEX: !Ref OpenSearchVPCFlowLogIndexParam
+      Runtime: python3.8
+      Timeout: 300
+  CloudTrailLogToOpenSearchLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: cloud-trail-log-to-opensearch
+      Handler: cloud-trail-log-to-opensearch.lambda_handler
+      Role:
+        Fn::GetAtt:
+        - OpenSearchLambdaExecutionRole
+        - Arn
+      Code:
+        S3Bucket: !Ref WSAssetBucketName
+        S3Key:
+          Fn::Sub: "${WSAssetBucketPrefix}cloud-trail-log-to-opensearch.zip"
+      Layers:
+        - !Ref OpenSearchLambdaLayer
+      Environment:
+        Variables:
+          OPENSEARCH_DOMAIN: !Ref DomainParam
+          OPENSEARCH_CLOUD_TRAIL_LOG_INDEX: !Ref OpenSearchCloudTrailLogIndexParam
+      Runtime: python3.8
+      Timeout: 300
+  EmptyBucketLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: EmptyBucketLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+        - PolicyName: EmptyBucketLambdaExecutionRolePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+              - Effect: Allow
+                Action:
+                  - 's3:ListBucket'
+                Resource: 'arn:aws:s3:::*'
+              - Effect: Allow
+                Action:
+                  - 's3:DeleteObject'
+                Resource: 'arn:aws:s3:::*'
+  LogBuckets:
+    Type: Custom::LogBuckets
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+          - LogBucketsLambda
+          - Arn
+      Buckets:
+        - !Ref OpenSearchVPCFlowLogBucket
+        - !Ref OpenSearchCloudTrailBucket
+  LogBucketsLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: opensearch-empty-log-buckets
+      Handler: index.handler
+      Role:
+        Fn::GetAtt:
+        - EmptyBucketLambdaExecutionRole
+        - Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import botocore
+          import json
+          import cfnresponse
+          s3 = boto3.resource('s3')
+          def handler(event, context):
+            print(event)
+            if event['RequestType'] == 'Delete':
+              for bucket in event['ResourceProperties']['Buckets']:
+                try:
+                  r = s3.Bucket(bucket).objects.delete()
+                  print(r)
+                except s3.meta.client.exceptions.NoSuchBucket as nobucket:
+                  print("Bucket {} does not exist".format(nobucket.response['Error']['BucketName']))
+                  continue
+                except Exception as other_err:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {}, "CustomResourcePhysicalID")
+                  raise(other_err)
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, "CustomResourcePhysicalID")
+      Runtime: python3.8
+      Timeout: 300
+  OpenSearchEncryptionAtRestKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: Encryption at rest key
+      EnableKeyRotation: true
+      PendingWindowInDays: 20
+      KeyPolicy:
+        Version: '2012-10-17'
+        Id: opensearch-lab-key
+        Statement:
+        # ensure root has access so that keys do not become unmanageable
+        - Sid: Enable IAM Root User Permissions
+          Effect: Allow
+          Principal:
+            AWS:
+              Fn::Sub: arn:aws:iam::${AWS::AccountId}:root
+          Action: kms:*
+          Resource: "*"
+          # all account users access to key - this is ok for a workshop where
+          # a single individual is using the account, in production, this should reference
+          # actual users or groups
+        - Sid: Enable IAM User Permissions
+          Effect: Allow
+          Principal:
+            AWS:
+              Fn::Sub: arn:aws:iam::${AWS::AccountId}:root
+          Action: kms:*
+          Resource: "*"
+  OpenSearchServiceDomain:
+    Type: AWS::OpenSearchService::Domain
+    Properties:
+      DomainName: !Ref DomainParam
+      EngineVersion: OpenSearch_2.3
+      ClusterConfig:
+        InstanceCount: '1'
+        ZoneAwarenessEnabled: false
+        InstanceType: t3.small.search
+      EBSOptions:
+        EBSEnabled: true
+        Iops: '0'
+        VolumeSize: '20'
+        VolumeType: gp2
+      AccessPolicies:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            AWS: "*"
+          Action: es:*
+          Resource:
+            Fn::Sub:
+            - arn:aws:${AWS::Region}:${AWS::AccountId}:domain/${Domain}/*
+            - Domain: !Ref DomainParam
+      DomainEndpointOptions:
+        EnforceHTTPS: true
+      AdvancedSecurityOptions:
+        Enabled: true
+        InternalUserDatabaseEnabled: true
+        MasterUserOptions:
+          MasterUserName: !Ref OpenSearchMasterUserNameParam
+          MasterUserPassword: !Ref OpenSearchMasterUserPasswordParam
+      NodeToNodeEncryptionOptions:
+        Enabled: true
+      EncryptionAtRestOptions:
+        Enabled: true
+        KmsKeyId: !Ref OpenSearchEncryptionAtRestKey
+  OpenSearchEC2Instance01:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0b0dcb5067f052a63
+      InstanceType: t2.micro
+      SecurityGroupIds:
+        - !GetAtt OpenSearchSSHSecurityGroup.GroupId
+      Tags:
+        - Key: "Name"
+          Value: OpenSearchEC2_01
+  OpenSearchEC2Instance02:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0b0dcb5067f052a63
+      InstanceType: t2.micro
+      SecurityGroupIds:
+        - !GetAtt OpenSearchSSHSecurityGroup.GroupId
+      Tags:
+        - Key: "Name"
+          Value: OpenSearchEC2_02
+  OpenSearchSSHSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: EC2-CloudFormation-Test-SG
+      GroupDescription: "Allow SSH and ping"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+
+Outputs:
+  Region:
+    Value: !Ref AWS::Region
+  OpenSearchLambdaExecutionRoleArnOut:
+    Value: !GetAtt OpenSearchLambdaExecutionRole.Arn
+  OpenSearchVPCFlowLogBucketArn:
+    Value: !GetAtt OpenSearchVPCFlowLogBucket.Arn
+  OpenSearchVPCFlowLogBucketName:
+    Value: !Ref OpenSearchVPCFlowLogBucket
+  OpenSearchCloudTrailBucketName:
+    Value: !Ref OpenSearchCloudTrailBucket
+  AssetBucketNameOut:
+    Value: !Ref WSAssetBucketName
+  AssetBucketPrefixOut:
+    Value: !Ref WSAssetBucketPrefix
+  OpenSearchDomainName:
+    Value: !Ref DomainParam
