@@ -116,7 +116,7 @@ def lambda_handler(event, context):
     es = boto3.client('es')
 
     domain = os.environ['OPENSEARCH_DOMAIN']
-    bucket =os.environ['OPENSEARCH_INIT_BUCKET']
+    bucket = os.environ['OPENSEARCH_INIT_BUCKET']
     bucket_prefix = os.environ['OPENSEARCH_INIT_BUCKET_PREFIX']
     chunk_size = os.getenv('CHUNK_SIZE', 500)
     cloud_trail_index = os.environ['OPENSEARCH_CLOUD_TRAIL_LOG_INDEX']
