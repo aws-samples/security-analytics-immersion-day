@@ -1,6 +1,6 @@
 ## Security Analytics Immersion Day
 
-This repository contains the files necessary to run the **Security Analytics Immersion Day** in a non-AWS Workshop event account.  If you are running in an AWS Workshop event, then an AWS account is provisioned for you and these files are automatically made available via the workshop S3 asset bucket.  If you are running this workshop in another account, for example in your personal account or a company account, then you will need provision these files by following the instructions here.
+This repository contains the files necessary to run the **Security Analytics Immersion Day** in a non-AWS Workshop event account.  If you are running in an AWS Workshop event, then an AWS account is provisioned for you and these files are automatically made available via the workshop S3 asset bucket.  If you are running this workshop in another account, for example in your personal account or a company account, then you will need to provision these files by following the instructions here.
 
 ## Prerequisites
 
