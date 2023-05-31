@@ -19,7 +19,7 @@ cd aws-samples/security-analytics-immersion-day
 bash build.sh
 
 # In the following command, use the bucket name and folder path you chose to use or created above
-s3 sync ./s3 s3://<your-bucket-name>/<your-folder-path>
+aws s3 sync ./s3 s3://<your-bucket-name>/<your-folder-path>
 ~~~
 3. Open the AWS Console and navigate to CloudFormation
 4. Select **Create stack**
